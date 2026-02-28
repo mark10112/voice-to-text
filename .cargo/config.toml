@@ -1,3 +1,8 @@
+[build]
+# Share the main project's target directory so pre-built C++ dependencies
+# (whisper-rs-sys, etc.) do not need to be recompiled in the worktree.
+target-dir = "C:\\Users\\User\\Desktop\\Projects\\voice-to-text\\target"
+
 [target.x86_64-pc-windows-msvc]
 linker = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\link.exe"
 
