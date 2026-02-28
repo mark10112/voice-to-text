@@ -1,0 +1,56 @@
+[package]
+name = "voice-to-text"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Audio
+cpal = "0.15"
+rubato = "0.15"
+
+# STT
+whisper-rs = "0.12"
+
+# UI
+eframe = { version = "0.31", features = ["default_fonts"] }
+egui = "0.31"
+
+# Global Hotkey
+rdev = "0.5"
+
+# Text Injection
+arboard = "3.4"
+enigo = "0.3"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Config
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+
+# HTTP (Phase 2 LLM)
+reqwest = { version = "0.12", features = ["json"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Async trait support
+async-trait = "0.1"
+
+# JSON (vocabulary, LLM responses)
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

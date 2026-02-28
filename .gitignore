@@ -1,0 +1,9 @@
+/target
+/models/
+*.ggml
+*.gguf
+*.bin
+*.onnx
+.env
+.claude/worktrees/
+.claude/settings.local.json
