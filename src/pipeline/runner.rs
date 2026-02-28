@@ -377,25 +377,19 @@ mod tests {
         vec![0.0f32; 16_000]
     }
 
-    fn make_audio_buf(samples: &[f32]) -> SharedAudioBuffer {
-        let buf = Arc::new(Mutex::new(RingBuffer::new(16_000 * 60)));
-        buf.lock().unwrap().push_slice(samples);
-        buf
-    }
-
     fn make_orchestrator(
         config: AppConfig,
-        samples: &[f32],
         llm: Arc<dyn LlmCorrector>,
-    ) -> (PipelineOrchestrator, SharedState) {
+    ) -> (PipelineOrchestrator, SharedState, SharedAudioBuffer) {
         use crate::stt::MockSttEngine;
 
         let state = new_shared_state(config);
-        let audio_buf = make_audio_buf(samples);
+        let audio_buf = Arc::new(Mutex::new(RingBuffer::new(16_000 * 60)));
         let stt: Arc<dyn SttEngine> = Arc::new(MockSttEngine::ok("สวัสดี"));
 
-        let orc = PipelineOrchestrator::new(Arc::clone(&state), audio_buf, stt, llm);
-        (orc, state)
+        let orc =
+            PipelineOrchestrator::new(Arc::clone(&state), Arc::clone(&audio_buf), stt, llm);
+        (orc, state, audio_buf)
     }
 
     // -----------------------------------------------------------------------
@@ -407,11 +401,8 @@ mod tests {
     async fn pressed_sets_recording_state() {
         let (tx, rx) = mpsc::channel(4);
         let config = AppConfig::default();
-        let (orc, state) = make_orchestrator(
-            config,
-            &one_second_of_silence(),
-            Arc::new(OkLlm("fixed".into())),
-        );
+        let (orc, state, _audio_buf) =
+            make_orchestrator(config, Arc::new(OkLlm("fixed".into())));
 
         tx.send(HotkeyEvent::PushToTalkPressed).await.unwrap();
         drop(tx); // close channel so run() returns
@@ -430,21 +421,21 @@ mod tests {
         let mut config = AppConfig::default();
         config.operating_mode = OperatingMode::Fast;
 
-        let (orc, state) = make_orchestrator(
-            config,
-            &one_second_of_silence(),
-            Arc::new(OkLlm("should not be called".into())),
-        );
+        let (orc, state, audio_buf) =
+            make_orchestrator(config, Arc::new(OkLlm("should not be called".into())));
+
+        let handle = tokio::spawn(async move { orc.run(rx).await });
 
         tx.send(HotkeyEvent::PushToTalkPressed).await.unwrap();
+        tokio::task::yield_now().await; // let orchestrator process Press (clears buffer)
+        audio_buf.lock().unwrap().push_slice(&one_second_of_silence());
         tx.send(HotkeyEvent::PushToTalkReleased).await.unwrap();
         drop(tx);
 
-        orc.run(rx).await;
+        handle.await.unwrap();
 
         let st = state.lock().unwrap();
         assert_eq!(st.pipeline, PipelineState::Result);
-        // Fast mode should inject the raw STT text directly.
         assert_eq!(st.last_text.as_deref(), Some("สวัสดี"));
     }
 
@@ -455,17 +446,18 @@ mod tests {
         let mut config = AppConfig::default();
         config.operating_mode = OperatingMode::Standard;
 
-        let (orc, state) = make_orchestrator(
-            config,
-            &one_second_of_silence(),
-            Arc::new(OkLlm("แก้ไขแล้ว".into())),
-        );
+        let (orc, state, audio_buf) =
+            make_orchestrator(config, Arc::new(OkLlm("แก้ไขแล้ว".into())));
+
+        let handle = tokio::spawn(async move { orc.run(rx).await });
 
         tx.send(HotkeyEvent::PushToTalkPressed).await.unwrap();
+        tokio::task::yield_now().await;
+        audio_buf.lock().unwrap().push_slice(&one_second_of_silence());
         tx.send(HotkeyEvent::PushToTalkReleased).await.unwrap();
         drop(tx);
 
-        orc.run(rx).await;
+        handle.await.unwrap();
 
         let st = state.lock().unwrap();
         assert_eq!(st.pipeline, PipelineState::Result);
@@ -480,20 +472,19 @@ mod tests {
         let mut config = AppConfig::default();
         config.operating_mode = OperatingMode::Standard;
 
-        let (orc, state) = make_orchestrator(
-            config,
-            &one_second_of_silence(),
-            Arc::new(FailLlm),
-        );
+        let (orc, state, audio_buf) = make_orchestrator(config, Arc::new(FailLlm));
+
+        let handle = tokio::spawn(async move { orc.run(rx).await });
 
         tx.send(HotkeyEvent::PushToTalkPressed).await.unwrap();
+        tokio::task::yield_now().await;
+        audio_buf.lock().unwrap().push_slice(&one_second_of_silence());
         tx.send(HotkeyEvent::PushToTalkReleased).await.unwrap();
         drop(tx);
 
-        orc.run(rx).await;
+        handle.await.unwrap();
 
         let st = state.lock().unwrap();
-        // Must reach Result (not Error) with the raw STT text.
         assert_eq!(st.pipeline, PipelineState::Result);
         assert_eq!(st.last_text.as_deref(), Some("สวัสดี"));
     }
@@ -531,11 +522,8 @@ mod tests {
     async fn toggle_visibility_is_ignored() {
         let (tx, rx) = mpsc::channel(4);
         let config = AppConfig::default();
-        let (orc, state) = make_orchestrator(
-            config,
-            &one_second_of_silence(),
-            Arc::new(OkLlm("ok".into())),
-        );
+        let (orc, state, _audio_buf) =
+            make_orchestrator(config, Arc::new(OkLlm("ok".into())));
 
         tx.send(HotkeyEvent::ToggleVisibility).await.unwrap();
         drop(tx);
